@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI VC Council</title>
+    <style>
+      :root {
+        --bg: #0a0a0a;
+        --card: #141414;
+        --text: #efefef;
+        --muted: #9c9c9c;
+        --line: #2a2a2a;
+        --accent: #d4a574;
+        --ok: #3dd18f;
+        --err: #ff6f6f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+        background: radial-gradient(circle at 20% 0, #1b1b1b 0, var(--bg) 45%);
+        color: var(--text);
+      }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 42px);
+      }
+      .subtitle {
+        color: var(--muted);
+        margin-top: 8px;
+        margin-bottom: 20px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 16px;
+      }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 10px;
+        margin-bottom: 6px;
+      }
+      input, textarea, select {
+        width: 100%;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 10px;
+        background: #0f0f0f;
+        color: var(--text);
+      }
+      textarea { min-height: 100px; resize: vertical; }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        padding: 12px;
+        margin-top: 14px;
+        background: var(--accent);
+        color: #111;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .hint {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      .status {
+        margin: 12px 0;
+        font-size: 14px;
+      }
+      .status.ok { color: var(--ok); }
+      .status.err { color: var(--err); }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .tab-btn {
+        border: 1px solid #3a3a3a;
+        background: #101010;
+        color: #d8d8d8;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .tab-btn.active {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #0f0f0f;
+        border: 1px solid #252525;
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 350px;
+        max-height: 70vh;
+        overflow: auto;
+        font-size: 13px;
+      }
+      .actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+      .actions button {
+        margin-top: 0;
+        width: auto;
+        padding: 10px 12px;
+        background: #1f1f1f;
+        border: 1px solid #333;
+        color: #eee;
+      }
+      @media (max-width: 980px) {
+        .layout { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>AI VC Council</h1>
+      <div class="subtitle">Public VC Council simulator with Korean-ready IR deck processing</div>
+
+      <div class="layout">
+        <form id="form" class="panel">
+          <label for="company_name">Startup Name</label>
+          <input id="company_name" name="company_name" type="text" placeholder="Optional" />
+
+          <label for="deck_file">IR Deck (PDF, <= 4.5MB on Vercel)</label>
+          <input id="deck_file" name="deck_file" type="file" accept="application/pdf" />
+
+          <label for="website_url">Startup Webpage URL</label>
+          <input id="website_url" name="website_url" type="url" placeholder="https://example.com" />
+
+          <label for="notes">Additional Notes</label>
+          <textarea id="notes" name="notes" placeholder="Optional context"></textarea>
+
+          <div class="row">
+            <div>
+              <label for="mode">Mode</label>
+              <select id="mode" name="mode">
+                <option value="fast">fast</option>
+                <option value="deep">deep</option>
+              </select>
+            </div>
+            <div>
+              <label for="language">Output Language</label>
+              <select id="language" name="language">
+                <option value="auto">auto</option>
+                <option value="ko">ko</option>
+                <option value="en">en</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="model">Model</label>
+              <input id="model" name="model" type="text" value="gpt-4.1-mini" />
+            </div>
+            <div>
+              <label for="temperature">Temperature (0-1)</label>
+              <input id="temperature" name="temperature" type="number" min="0" max="1" step="0.05" value="0.3" />
+            </div>
+          </div>
+
+          <label for="max_tokens">Max Tokens</label>
+          <input id="max_tokens" name="max_tokens" type="number" min="1000" max="8000" step="500" value="4000" />
+
+          <button id="runBtn" type="submit">Run Council</button>
+          <div class="hint">Set `OPENAI_API_KEY` in Vercel project environment variables.</div>
+        </form>
+
+        <div class="panel">
+          <div id="status" class="status">Ready</div>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="full" type="button">Full Report</button>
+            <button class="tab-btn" data-tab="stage_1" type="button">Stage 1</button>
+            <button class="tab-btn" data-tab="stage_2" type="button">Stage 2</button>
+            <button class="tab-btn" data-tab="stage_3" type="button">Stage 3</button>
+            <button class="tab-btn" data-tab="stage_4" type="button">Stage 4</button>
+          </div>
+          <pre id="output">No report yet.</pre>
+          <div class="actions">
+            <button id="copyBtn" type="button">Copy Output</button>
+            <button id="downloadBtn" type="button">Download Markdown</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById("form");
+      const runBtn = document.getElementById("runBtn");
+      const output = document.getElementById("output");
+      const statusEl = document.getElementById("status");
+      const tabButtons = [...document.querySelectorAll(".tab-btn")];
+      const copyBtn = document.getElementById("copyBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+
+      let latest = null;
+      let activeTab = "full";
+
+      function setStatus(text, type = "") {
+        statusEl.className = `status ${type}`.trim();
+        statusEl.textContent = text;
+      }
+
+      function render() {
+        if (!latest) {
+          output.textContent = "No report yet.";
+          return;
+        }
+        const result = latest.result;
+        const tabMap = {
+          full: result.full_markdown,
+          stage_1: result.stage_1,
+          stage_2: result.stage_2,
+          stage_3: result.stage_3,
+          stage_4: result.stage_4,
+        };
+        output.textContent = tabMap[activeTab] || result.full_markdown;
+      }
+
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabButtons.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          activeTab = btn.dataset.tab;
+          render();
+        });
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(output.textContent || "");
+          setStatus("Copied current tab output", "ok");
+        } catch (err) {
+          setStatus(`Copy failed: ${err}`, "err");
+        }
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        if (!latest) {
+          setStatus("No output to download", "err");
+          return;
+        }
+        const blob = new Blob([latest.result.full_markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "vc_council_report.md";
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const data = new FormData(form);
+        const file = document.getElementById("deck_file").files[0];
+        if (!file && !data.get("website_url") && !data.get("notes")) {
+          setStatus("Provide at least one input: PDF, URL, or notes.", "err");
+          return;
+        }
+
+        if (file && file.size > 4500000) {
+          setStatus("PDF is too large for Vercel body limits (keep it <= 4.5MB).", "err");
+          return;
+        }
+
+        runBtn.disabled = true;
+        setStatus("Running VC Council analysis...", "");
+
+        try {
+          const resp = await fetch("/api/analyze", {
+            method: "POST",
+            body: data,
+          });
+          const body = await resp.json();
+          if (!resp.ok) {
+            throw new Error(body.detail || "Request failed");
+          }
+          latest = body;
+          activeTab = "full";
+          tabButtons.forEach((b) => b.classList.toggle("active", b.dataset.tab === "full"));
+          render();
+          setStatus(`Done. Mode=${body.mode}, language=${body.language}, model=${body.model}`, "ok");
+        } catch (err) {
+          setStatus(`Error: ${err.message || err}`, "err");
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
