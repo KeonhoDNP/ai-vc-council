@@ -287,6 +287,8 @@
 
         const data = new FormData(form);
         const file = document.getElementById("deck_file").files[0];
+        const mode = String(data.get("mode") || "fast");
+        const maxTokens = Number(data.get("max_tokens") || 0);
         if (!file && !data.get("website_url") && !data.get("notes")) {
           setStatus("Provide at least one input: PDF, URL, or notes.", "err");
           return;
@@ -297,15 +299,33 @@
           return;
         }
 
+        if (mode === "deep" && maxTokens > 4000) {
+          setStatus(
+            "Deep mode with high max tokens is slow on serverless. Continue is allowed, but 2000-4000 is recommended.",
+            ""
+          );
+        }
+
         runBtn.disabled = true;
         setStatus("Running VC Council analysis...", "");
+
+        const timeoutMs = mode === "deep" ? 290000 : 180000;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
           const resp = await fetch("/api/analyze", {
             method: "POST",
             body: data,
+            signal: controller.signal,
           });
-          const body = await resp.json();
+          const raw = await resp.text();
+          let body;
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            throw new Error(`HTTP ${resp.status}: ${raw.slice(0, 240) || "Non-JSON response"}`);
+          }
           if (!resp.ok) {
             throw new Error(body.detail || "Request failed");
           }
@@ -313,10 +333,26 @@
           activeTab = "full";
           tabButtons.forEach((b) => b.classList.toggle("active", b.dataset.tab === "full"));
           render();
-          setStatus(`Done. Mode=${body.mode}, language=${body.language}, model=${body.model}`, "ok");
+          const note = body.note ? ` (${body.note})` : "";
+          const tokenNote =
+            body.requested_max_tokens && body.effective_max_tokens
+              ? `, tokens=${body.effective_max_tokens}/${body.requested_max_tokens}`
+              : "";
+          setStatus(
+            `Done. Mode=${body.mode}, language=${body.language}, model=${body.model}${tokenNote}${note}`,
+            "ok"
+          );
         } catch (err) {
-          setStatus(`Error: ${err.message || err}`, "err");
+          if (err && err.name === "AbortError") {
+            setStatus(
+              "Error: Request timed out. Try fast mode or reduce max tokens/model complexity.",
+              "err"
+            );
+          } else {
+            setStatus(`Error: ${err.message || err}`, "err");
+          }
         } finally {
+          clearTimeout(timer);
           runBtn.disabled = false;
         }
       });

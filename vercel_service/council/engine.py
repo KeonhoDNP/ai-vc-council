@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -20,6 +21,13 @@ from council.prompts import (
 )
 
 ProgressCallback = Callable[[str, str], None]
+
+DEEP_STAGE1_TOKEN_CAP = 3200
+DEEP_PERSONA_TOKEN_CAP = 1200
+DEEP_PANEL_TOKEN_CAP = 800
+DEEP_DEBATE_TOKEN_CAP = 2200
+DEEP_FINAL_TOKEN_CAP = 2200
+DEEP_PERSONA_WORKERS = 4
 
 
 @dataclass(frozen=True)
@@ -68,6 +76,14 @@ def _notify(progress: ProgressCallback | None, stage: str, message: str) -> None
         progress(stage, message)
 
 
+def _build_cfg(base: CouncilRunConfig, max_tokens: int) -> LLMConfig:
+    return LLMConfig(
+        model=base.model,
+        temperature=base.temperature,
+        max_tokens=max_tokens,
+    )
+
+
 def run_council_analysis(
     *,
     startup_context: str,
@@ -76,11 +92,8 @@ def run_council_analysis(
     company_name: str | None = None,
     progress: ProgressCallback | None = None,
 ) -> CouncilResult:
-    llm_cfg = LLMConfig(
-        model=config.model,
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-    )
+    mode = config.mode.lower().strip()
+    requested_tokens = config.max_tokens
 
     resolved_language = resolve_output_language(config.output_language, startup_context)
     _notify(
@@ -88,6 +101,19 @@ def run_council_analysis(
         "setup",
         f"Output language: {output_language_label(resolved_language)}",
     )
+
+    if mode == "deep":
+        stage1_cfg = _build_cfg(config, min(requested_tokens, DEEP_STAGE1_TOKEN_CAP))
+        persona_cfg = _build_cfg(config, min(requested_tokens, DEEP_PERSONA_TOKEN_CAP))
+        panel_cfg = _build_cfg(config, min(requested_tokens, DEEP_PANEL_TOKEN_CAP))
+        stage3_cfg = _build_cfg(config, min(requested_tokens, DEEP_DEBATE_TOKEN_CAP))
+        stage4_cfg = _build_cfg(config, min(requested_tokens, DEEP_FINAL_TOKEN_CAP))
+    else:
+        stage1_cfg = _build_cfg(config, requested_tokens)
+        persona_cfg = _build_cfg(config, requested_tokens)
+        panel_cfg = _build_cfg(config, requested_tokens)
+        stage3_cfg = _build_cfg(config, requested_tokens)
+        stage4_cfg = _build_cfg(config, requested_tokens)
 
     _notify(progress, "stage_1", "Running Stage 1 deal memo extraction")
     stage_1 = llm_client.complete(
@@ -97,26 +123,39 @@ def run_council_analysis(
             company_name=company_name,
             output_language=resolved_language,
         ),
-        config=llm_cfg,
+        config=stage1_cfg,
     )
 
     _notify(progress, "stage_2", "Running Stage 2 independent evaluations")
-    mode = config.mode.lower().strip()
 
     if mode == "deep":
+        sections_by_name: dict[str, str] = {}
+        max_workers = min(DEEP_PERSONA_WORKERS, len(PERSONAS))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {}
+            for persona in PERSONAS:
+                _notify(progress, "stage_2", f"Queued {persona.name}")
+                future = executor.submit(
+                    llm_client.complete,
+                    system_prompt=SYSTEM_PROMPT,
+                    user_prompt=stage_2_deep_prompt(
+                        stage_1_markdown=_trim_for_prompt(stage_1),
+                        persona=persona,
+                        output_language=resolved_language,
+                    ),
+                    config=persona_cfg,
+                )
+                future_map[future] = persona.name
+
+            for future in as_completed(future_map):
+                persona_name = future_map[future]
+                sections_by_name[persona_name] = future.result()
+                _notify(progress, "stage_2", f"Completed {persona_name}")
+
         sections: list[str] = ["## Stage 2 - Independent Evaluations"]
         for persona in PERSONAS:
-            _notify(progress, "stage_2", f"Evaluating {persona.name}")
-            persona_output = llm_client.complete(
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt=stage_2_deep_prompt(
-                    stage_1_markdown=_trim_for_prompt(stage_1),
-                    persona=persona,
-                    output_language=resolved_language,
-                ),
-                config=llm_cfg,
-            )
-            sections.append(persona_output)
+            sections.append(sections_by_name[persona.name])
 
         stage_2_core = "\n\n".join(sections)
         panel_block = llm_client.complete(
@@ -126,7 +165,7 @@ def run_council_analysis(
                 stage_2_markdown=_trim_for_prompt(stage_2_core),
                 output_language=resolved_language,
             ),
-            config=llm_cfg,
+            config=panel_cfg,
         )
         stage_2 = f"{stage_2_core}\n\n{panel_block}"
     else:
@@ -136,7 +175,7 @@ def run_council_analysis(
                 stage_1_markdown=_trim_for_prompt(stage_1),
                 output_language=resolved_language,
             ),
-            config=llm_cfg,
+            config=persona_cfg,
         )
         panel_block = _extract_panel_block(stage_2)
         if panel_block is None:
@@ -147,7 +186,7 @@ def run_council_analysis(
                     stage_2_markdown=_trim_for_prompt(stage_2),
                     output_language=resolved_language,
                 ),
-                config=llm_cfg,
+                config=panel_cfg,
             )
 
     _notify(progress, "stage_3", "Running Stage 3 debate")
@@ -159,7 +198,7 @@ def run_council_analysis(
             panel_markdown=_trim_for_prompt(panel_block, max_chars=4_000),
             output_language=resolved_language,
         ),
-        config=llm_cfg,
+        config=stage3_cfg,
     )
 
     _notify(progress, "stage_4", "Running Stage 4 final IC output")
@@ -171,7 +210,7 @@ def run_council_analysis(
             stage_3_markdown=_trim_for_prompt(stage_3, max_chars=16_000),
             output_language=resolved_language,
         ),
-        config=llm_cfg,
+        config=stage4_cfg,
     )
 
     _notify(progress, "done", "Council run completed")
