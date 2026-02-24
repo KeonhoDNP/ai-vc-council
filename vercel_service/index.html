@@ -309,7 +309,7 @@
         runBtn.disabled = true;
         setStatus("Running VC Council analysis...", "");
 
-        const timeoutMs = mode === "deep" ? 290000 : 180000;
+        const timeoutMs = mode === "deep" ? 290000 : 260000;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
 

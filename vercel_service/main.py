@@ -110,12 +110,41 @@ async def analyze(
             "serverless timeout."
         )
 
+    has_pdf = deck_file is not None
+    has_url = bool(website_url and website_url.strip())
+    heavy_input = has_pdf and has_url
+
     # Cost and timeout guardrails for a public endpoint.
     if normalized_model.startswith("gpt-5"):
-        token_cap = 2500
+        token_cap = 1600
     else:
-        token_cap = 4000 if effective_mode == "deep" else 6000
+        if effective_mode == "deep":
+            token_cap = 2400
+        else:
+            token_cap = 2800
+
+    # Heavy inputs (PDF + URL) are more likely to timeout on serverless;
+    # apply tighter caps to prioritize reliability.
+    if heavy_input:
+        token_cap = min(token_cap, 1800 if effective_mode == "fast" else 1600)
     effective_max_tokens = min(max_tokens, token_cap)
+
+    if effective_mode == "deep":
+        deck_char_cap = 80_000
+        url_char_cap = 60_000
+        context_char_cap = 110_000
+        url_timeout_seconds = 20
+    else:
+        deck_char_cap = 45_000
+        url_char_cap = 18_000
+        context_char_cap = 55_000
+        url_timeout_seconds = 12
+
+    if heavy_input and effective_mode == "fast":
+        deck_char_cap = 36_000
+        url_char_cap = 10_000
+        context_char_cap = 40_000
+        url_timeout_seconds = 10
 
     try:
         deck_text: Optional[str] = None
@@ -129,16 +158,21 @@ async def analyze(
                         "or share a webpage URL instead."
                     ),
                 )
-            deck_text = extract_text_from_pdf_bytes(raw)
+            deck_text = extract_text_from_pdf_bytes(raw, max_chars=deck_char_cap)
 
         webpage_text: Optional[str] = None
         if website_url and website_url.strip():
-            webpage_text = extract_text_from_url(website_url.strip())
+            webpage_text = extract_text_from_url(
+                website_url.strip(),
+                timeout_seconds=url_timeout_seconds,
+                max_chars=url_char_cap,
+            )
 
         startup_context = build_startup_context(
             deck_text=deck_text,
             webpage_text=webpage_text,
             additional_notes=notes,
+            max_chars=context_char_cap,
         )
 
         client = OpenAIChatClient(api_key=api_key, base_url=os.getenv("OPENAI_BASE_URL"))
@@ -168,6 +202,11 @@ async def analyze(
             "note": (
                 model_fallback_note
                 or fallback_note
+                or (
+                    "Fast mode runs a compact Stage 3+4 synthesis path for higher reliability."
+                    if effective_mode == "fast"
+                    else ""
+                )
                 or (
                     "Deep mode applies internal per-stage token caps to reduce Vercel timeout risk."
                     if effective_mode == "deep"

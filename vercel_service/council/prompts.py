@@ -272,3 +272,85 @@ Output markdown with this exact order:
 ### Executive Recommendation
 - 1 concise paragraph with recommendation and explicit conditions.
 """
+
+
+def stage_34_fast_prompt(
+    stage_1_markdown: str,
+    stage_2_markdown: str,
+    panel_markdown: str,
+    output_language: str = "en",
+) -> str:
+    language_instruction = _language_instruction(output_language)
+    return f"""Produce both Stage 3 debate and Stage 4 final recommendation in one response.
+
+Inputs:
+Stage 1:
+{stage_1_markdown}
+
+Stage 2:
+{stage_2_markdown}
+
+Panel selection:
+{panel_markdown}
+
+Language rule: {language_instruction}
+
+Output markdown in this exact order:
+
+## Stage 3 - IC Debate (5 Rounds)
+For each round include exactly 3 speakers and have them rebut prior points:
+- Bull:
+- Bear:
+- Wild Card:
+
+Round objectives:
+1) Initial theses and assumptions
+2) Evidence clash (metrics, market logic, precedent)
+3) Assumption stress test
+4) Convergence and conditions
+5) Final votes with explicit conditions
+
+After round 5 include:
+
+### Role Final Votes
+- Bull: Invest / Pass / Dig Deeper - one-line rationale
+- Bear: Invest / Pass / Dig Deeper - one-line rationale
+- Wild Card: Invest / Pass / Dig Deeper - one-line rationale
+
+## Stage 4 - Final IC Output
+### Final Vote Summary
+- Invest:
+- Pass:
+- Dig Deeper:
+
+### Conviction
+- Level: High / Medium / Low
+- Why:
+
+### Top 5 Risks and Mitigations
+1. Risk - mitigation experiment
+2. ...
+3. ...
+4. ...
+5. ...
+
+### Diligence Checklist (10)
+1. ...
+2. ...
+3. ...
+4. ...
+5. ...
+6. ...
+7. ...
+8. ...
+9. ...
+10. ...
+
+### 30/90/180 Day Founder Plan
+- 30 days:
+- 90 days:
+- 180 days:
+
+### Executive Recommendation
+- 1 concise paragraph with recommendation and explicit conditions.
+"""
